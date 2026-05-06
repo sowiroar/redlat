@@ -58,7 +58,7 @@ Predice la **edad cronologica** a partir de metricas alpha canonicas e individua
 | **A** | Features seleccionadas por consenso SHAP (XGBoost + ElasticNet) | Reduce ruido de features no informativas y mejora interpretabilidad |
 | **B** | Componentes PCA (95% varianza) | Elimina multicolinealidad entre canales adyacentes |
 
-**Modelo:** ElasticNet + Bagging (20 iteraciones) + correccion de bias por regresion a la media (sin leakage), siguiendo Prado et al. (2025). Comparado contra XGBoost y SVR con CV anidada.
+**Modelo:** ElasticNet + Bagging (20 iteraciones) + correccion de bias por regresion a la media, siguiendo Prado et al. (2025). Comparado contra XGBoost y SVR con CV anidada.
 
 **Metricas:** MAE (principal), RMSE, R^2 — sobre test hold-out 20%.
 
