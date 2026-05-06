@@ -1,133 +1,151 @@
-# EEG Brain Age Analysis — EuroLAD-EEG Consortium
+# EEG Brain Age Analysis — RedLat-EEG Consortium
 
-Repository for the technical assessment based on the EuroLAD-EEG dataset.  
-Contains two main tasks: **age prediction** from EEG alpha-band features, and **data organization** of supporting analysis scripts.
+Repositorio para la prueba tecnica basada en el dataset RedLat-EEG.
+Contiene dos tareas principales: **prediccion de edad** a partir de features alpha del EEG, y **organizacion de datos** con scripts de soporte (matching, calidad de senal y demo de brain clock).
 
 ---
 
-## Repository Structure
+## Estructura del repositorio
 
 ```
+Files/
 ├── Data/
-│   ├── Alpha_data.xlsx              # EEG alpha-band features + Age target
-│   ├── data.xlsx                    # Clinical dataset (Diagnosis, Age, Sex, Education)
-│   └── matched_*.csv                # Output of Matching_sex.R (one file per diagnosis pair)
+│   ├── Alpha_data.xlsx                  # Features alpha-band (alpha1, alpha2, IAF, TF) por canal + Age
+│   ├── data.xlsx                        # Dataset clinico (Diagnosis, Age, Sex, Education)
+│   ├── matched_*.csv                    # Salidas de Matching_sex.R (un CSV por par diagnostico)
+│   └── matching_results_all_pairs.csv   # Tabla resumen de todos los pares matcheados
 │
-├── Figures/                         # Output figures from SignalQuality.m
+├── QA_Code/
+│   ├── SignalQuality.m                  # Script principal de calidad de senal (MATLAB)
+│   ├── +functions/                      # Package MATLAB con utilidades
+│   │   ├── eeg_quality_nan.m
+│   │   ├── eeg_quality_high_amplitude.m
+│   │   ├── PSD.m
+│   │   └── plot_eeg_psd.m
+│   ├── sub-02_ses-01_task-RSVP_run-01_eeg.edf
+│   ├── sub-10_ses-01_task-RSVP_run-01_eeg.edf
+│   ├── sub-11_ses-01_task-RSVP_run-01_eeg.edf
+│   └── Results/                         # Figuras y CSV generados por SignalQuality.m
 │
-├── EEG_Age_Prediction.ipynb         # Task 1 — Age prediction pipeline
-├── Clock.ipynb                      # Brain clock on artificial dataset (GBR)
-├── Matching_sex.R                   # Participant matching by age, sex and education (R)
-├── Matching-sex.ipynb               # Statistical comparison of matched groups (Python)
-└── SignalQuality.m                  # EEG signal quality assessment (MATLAB)
+├── EEG_Age_Prediction.ipynb             # Tarea 1 — Pipeline de prediccion de edad
+├── Clock.ipynb                          # Brain clock sobre dataset artificial (GBR)
+├── Matching_sex.R                       # Matching por edad/sexo/educacion (R)
+├── Matching-sex.ipynb                   # Comparacion estadistica de grupos matcheados
+├── requirements.txt                     # Dependencias Python
+└── README.md
 ```
 
 ---
 
-## Task 1 — Age Prediction (`EEG_Age_Prediction.ipynb`)
+## Setup
 
-Predicts chronological **Age** from canonical and individualized EEG alpha-band metrics (α1, α2, IAF, TF) extracted per channel from resting-state EEG.
+```bash
+pip install -r requirements.txt
+```
 
-**Two parallel pipelines:**
+Para los scripts en R y MATLAB ver las secciones correspondientes mas abajo.
 
-| Pipeline | Feature input | Rationale |
+---
+
+## Tarea 1 — Prediccion de edad (`EEG_Age_Prediction.ipynb`)
+
+Predice la **edad cronologica** a partir de metricas alpha canonicas e individualizadas (alpha1, alpha2, IAF, TF) extraidas por canal del EEG en reposo.
+
+**Dos pipelines en paralelo:**
+
+| Pipeline | Input | Justificacion |
 |---|---|---|
-| **A** | All 66 features | No individual feature exceeds \|r\|=0.30 with Age → ElasticNet performs implicit selection via L1 regularization |
-| **B** | PCA components (95% variance) | Removes multicollinearity between adjacent channels |
+| **A** | Features seleccionadas por consenso SHAP (XGBoost + ElasticNet) | Reduce ruido de features no informativas y mejora interpretabilidad |
+| **B** | Componentes PCA (95% varianza) | Elimina multicolinealidad entre canales adyacentes |
 
-**Model:** ElasticNet + Bagging (20 iterations) + regression-to-mean bias correction, replicating the methodology of Prado et al. (2025).
+**Modelo:** ElasticNet + Bagging (20 iteraciones) + correccion de bias por regresion a la media (sin leakage), siguiendo Prado et al. (2025). Comparado contra XGBoost y SVR con CV anidada.
 
-**Metrics:** MAE (primary), RMSE, R² — evaluated on a held-out 20% test set.
+**Metricas:** MAE (principal), RMSE, R^2 — sobre test hold-out 20%.
 
-**Key finding:** MAE ≈ 14 years, consistent with scalp-level alpha-only models in the literature. Performance gap relative to Prado et al. (MAE=6.22) is attributed to the absence of source-space EEG (sLORETA), multi-site harmonization, and healthy-controls-only training.
-
-**Dependencies:**
-```bash
-pip install pandas openpyxl matplotlib seaborn scikit-learn xgboost shap
-```
+**Hallazgo clave:** MAE ≈ 14 anos, GAP con MAE ≈ 7.
 
 ---
 
-## Task 2 — Data Organization
+## Tarea 2 — Organizacion de datos
 
-### `Clock.ipynb` — Brain Clock on Artificial Dataset
+### `Clock.ipynb` — Brain clock sobre dataset artificial
 
-Demonstrates a brain-clock pipeline using Gradient Boosting Regression (GBR) on a synthetic dataset generated with `sklearn.make_regression`.
+Pipeline demostrativo de brain clock con Gradient Boosting Regression (GBR) sobre dataset sintetico (`sklearn.make_regression`).
 
-Steps: data generation → MinMax scaling → k-fold CV → GAP bias correction (GLM) → feature importance + directional effects visualization.
+Pasos: generacion de datos → MinMax scaling → k-fold CV → correccion de GAP via GLM → importancia de features y efectos direccionales.
 
-**Bugs fixed:**
-- `mean_absolute_error` was missing `np.abs()` → computed mean signed error instead
-- `model.fit(X, y)` after `model.fit(X_train, y_train)` overwrote fold model with full-data model
-- Double `sns.barplot` call in visualization cell
-
-**Dependencies:**
-```bash
-pip install scikit-learn statsmodels seaborn matplotlib scipy
-```
+**Bugs corregidos:**
+- `mean_absolute_error` no aplicaba `np.abs()` (calculaba el error medio con signo).
+- Doble llamada a `model.fit` que sobrescribia el modelo del fold con uno entrenado sobre todo el dataset.
+- Doble `sns.barplot` en la celda de visualizacion.
 
 ---
 
-### `Matching_sex.R` — Participant Matching
+### `Matching_sex.R` — Matching de participantes (R)
 
-Matches participants across all pairwise diagnostic group combinations (CN, AD, FTD, FTD-L, DCL) by **age** and **education** using nearest-neighbor propensity score matching (`MatchIt`). Tests sex balance with Chi-square or Fisher's exact test.
+Empareja participantes entre todas las combinaciones por pares de grupos diagnosticos (CN, AD, FTD, FTD-L, DCL) por **edad** y **educacion** usando matching por nearest-neighbor / propensity score (`MatchIt`). Verifica balance de sexo con Chi-cuadrado o test exacto de Fisher.
 
-Outputs one matched CSV per pair to `Data/` and a summary table `matching_results_all_pairs.csv`.
+Genera un CSV por par en `Data/` y una tabla resumen `matching_results_all_pairs.csv`.
 
-**Bugs fixed:**
-- `shapiro_age` was testing `Education` instead of `Age`
-- `shapiro_ed` was testing `Age` instead of `Education`
-- `p_wilcox_education` used `Age ~ diagnosis_binary` instead of `Education ~ diagnosis_binary`
-- `mean_ed_group0/1` had group indices (0↔1) swapped
-- `write.csv` saved `data_sub` (unmatched) instead of `matched_data`
+**Bugs corregidos:**
+- `shapiro_age` testeaba `Education` en vez de `Age`.
+- `shapiro_ed` testeaba `Age` en vez de `Education`.
+- `p_wilcox_education` usaba `Age ~ diagnosis_binary` en vez de `Education ~ diagnosis_binary`.
+- `mean_ed_group0/1` tenia los indices de grupo (0 ↔ 1) intercambiados.
+- `write.csv` guardaba `data_sub` (sin matchear) en lugar de `matched_data`.
 
-**Dependencies (R):**
+**Dependencias R:**
 ```r
 install.packages(c("readxl", "dplyr", "MatchIt", "cobalt", "rstatix"))
 ```
 
 ---
 
-### `Matching-sex.ipynb` — Statistical Comparison of Matched Groups
+### `Matching-sex.ipynb` — Comparacion estadistica de grupos matcheados
 
-Consumes the matched CSVs from `Matching_sex.R` and performs:
-- IQR-based outlier removal with sensitivity analysis across 4 thresholds (k = 0.1, 0.5, 1.0, 1.5)
-- **Cliff's Delta** effect size for all pairwise comparisons
-- **Permutation test** (10,000 permutations, two-sided) for mean Brain Age Gap (BAG) differences
-- Boxplots of BAG stratified by diagnostic group
+Consume los CSV producidos por `Matching_sex.R` y aplica:
+- Remocion de outliers por IQR con analisis de sensibilidad sobre 4 umbrales (k = 0.1, 0.5, 1.0, 1.5).
+- **Cliff's Delta** como tamano de efecto en todas las comparaciones por pares.
+- **Test de permutacion** (10.000 permutaciones, dos colas) para diferencias en Brain Age Gap (BAG).
+- Boxplots de BAG estratificados por grupo diagnostico.
 
-**Bugs fixed:**
-- `remove_outliers_iqr`: `low`/`high` bounds were swapped (`q1 + k*IQR` and `q3 - k*IQR`); condition used `|` instead of `&`
-- `cliffs_delta`: denominator was `(nx + ny)`; correct formula uses `(nx * ny)`
-- `chunk_list`: `range(0, len(lst) - n, n)` dropped the last chunk; fixed to `range(0, len(lst), n)`
-- `permutation_pvalue`: comparison used signed `obs_diff`; two-sided test requires `np.abs(obs_diff)`
+**Bugs corregidos:**
+- `remove_outliers_iqr`: limites `low`/`high` invertidos (`q1 + k*IQR` y `q3 - k*IQR`); condicion usaba `|` en lugar de `&`.
+- `cliffs_delta`: denominador era `(nx + ny)`; la formula correcta es `(nx * ny)`.
+- `chunk_list`: `range(0, len(lst) - n, n)` perdia el ultimo chunk; corregido a `range(0, len(lst), n)`.
+- `permutation_pvalue`: comparacion usaba `obs_diff` con signo; un test de dos colas requiere `np.abs(obs_diff)`.
 
-**Dependencies:**
-```bash
-pip install pandas numpy seaborn matplotlib
+---
+
+### `QA_Code/SignalQuality.m` — Calidad de senal EEG (MATLAB)
+
+Script de evaluacion de calidad sobre los tres registros `.edf` incluidos. Procesa los archivos en un loop y guarda salidas en `QA_Code/Results/`.
+
+**Metricas calculadas:**
+
+| Metrica | Descripcion |
+|---|---|
+| **ONS** | Overall NaN Score — % de muestras sin NaN/Inf |
+| **OHA** | Overall High-Amplitude Score — % de muestras dentro de los limites de amplitud |
+| **ODQ** | Overall Data Quality — promedio combinado de ONS y OHA |
+
+**Salidas en `Results/`:**
+- `<sujeto>_quality.png` — heatmap por canal × ventana (NaN/Inf y amplitud) por cada sujeto.
+- `quality_summary.csv` — tabla con ONS, OHA, ODQ de los tres sujetos.
+
+**Como ejecutar:**
+```matlab
+cd 'Files/QA_Code'
+SignalQuality
 ```
 
----
-
-### `SignalQuality.m` — EEG Signal Quality Assessment (MATLAB)
-
-Computes and visualises three signal quality metrics:
-
-| Metric | Description |
-|---|---|
-| **ONS** | Overall NaN Score — % of samples without missing values |
-| **OHA** | Overall High-Amplitude Score — % of samples within amplitude bounds |
-| **ODQ** | Overall Data Quality — combined average of ONS and OHA |
-
-Generates three figures saved to `Figures/`:
-- `quality_heatmap.png` — per-channel × epoch quality matrices
-- `quality_per_channel.png` — per-channel bar chart of clean sample percentages
-- `quality_summary.png` — scalar ONS / OHA / ODQ summary
-
-**Dependencies:** EEGLAB, `+functions` package (`eeg_quality_nan`, `eeg_quality_high_amplitude`)
+**Dependencias MATLAB:**
+- *Signal Processing Toolbox* (para `edfread` / `edfinfo`).
+- *Statistics and Machine Learning Toolbox* (para `nanmean` en `+functions/eeg_quality_high_amplitude.m`).
+- Package local `+functions/` (incluido).
 
 ---
 
-## Reference
+## Referencia
 
 Prado et al. (2025). *Source-space EEG Alpha Activity Reveals Brain Age Gaps Due to Neurodegeneration and Disparity*. Research Square (preprint). https://doi.org/10.21203/rs.3.rs-6623758/v1
